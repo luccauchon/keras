@@ -17,7 +17,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-from keras.layers import Dense, Input
+from keras.layers import Dense, Input, LeakyReLU, MaxPooling2D, BatchNormalization
 from keras.layers import Conv2D, Flatten, Lambda
 from keras.layers import Reshape, Conv2DTranspose
 from keras.models import Model
@@ -119,18 +119,21 @@ def plot_results(models,
 (x_train, y_train), (x_test, y_test) = mnist.load_data()
 
 image_size = x_train.shape[1]
+print ('image_size = '+str(image_size)+'  x_train.shape='+str(x_train.shape))
 x_train = np.reshape(x_train, [-1, image_size, image_size, 1])
+print ('image_size = '+str(image_size)+'  x_train.shape='+str(x_train.shape))
 x_test = np.reshape(x_test, [-1, image_size, image_size, 1])
 x_train = x_train.astype('float32') / 255
 x_test = x_test.astype('float32') / 255
 
 # network parameters
 input_shape = (image_size, image_size, 1)
-batch_size = 128
+print ('input_shape = '+str(input_shape)+'  x_train.shape='+str(x_train.shape))
+batch_size = 256
 kernel_size = 3
 filters = 16
 latent_dim = 2
-epochs = 30
+epochs = 60
 
 # VAE model = encoder + decoder
 # build encoder model
@@ -139,10 +142,11 @@ x = inputs
 for i in range(2):
     filters *= 2
     x = Conv2D(filters=filters,
-               kernel_size=kernel_size,
-               activation='relu',
+               kernel_size=kernel_size,               
                strides=2,
                padding='same')(x)
+    x = LeakyReLU(alpha=0.3)(x)
+    x = BatchNormalization()(x)
 
 # shape info needed to build decoder model
 shape = K.int_shape(x)
@@ -170,10 +174,11 @@ x = Reshape((shape[1], shape[2], shape[3]))(x)
 for i in range(2):
     x = Conv2DTranspose(filters=filters,
                         kernel_size=kernel_size,
-                        activation='relu',
                         strides=2,
                         padding='same')(x)
     filters //= 2
+    x = LeakyReLU(alpha=0.3)(x)
+    x = BatchNormalization()(x)
 
 outputs = Conv2DTranspose(filters=1,
                           kernel_size=kernel_size,
@@ -190,41 +195,41 @@ plot_model(decoder, to_file='vae_cnn_decoder.png', show_shapes=True)
 outputs = decoder(encoder(inputs)[2])
 vae = Model(inputs, outputs, name='vae')
 
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser()
-    help_ = "Load h5 model trained weights"
-    parser.add_argument("-w", "--weights", help=help_)
-    help_ = "Use mse loss instead of binary cross entropy (default)"
-    parser.add_argument("-m", "--mse", help=help_, action='store_true')
-    args = parser.parse_args()
-    models = (encoder, decoder)
-    data = (x_test, y_test)
+#if __name__ == '__main__':
+parser = argparse.ArgumentParser()
+help_ = "Load h5 model trained weights"
+parser.add_argument("-w", "--weights", help=help_)
+help_ = "Use mse loss instead of binary cross entropy (default)"
+parser.add_argument("-m", "--mse", help=help_, action='store_true')
+args = parser.parse_args()
+models = (encoder, decoder)
+data = (x_test, y_test)
 
-    # VAE loss = mse_loss or xent_loss + kl_loss
-    if args.mse:
-        reconstruction_loss = mse(K.flatten(inputs), K.flatten(outputs))
-    else:
-        reconstruction_loss = binary_crossentropy(K.flatten(inputs),
-                                                  K.flatten(outputs))
+# VAE loss = mse_loss or xent_loss + kl_loss
+if args.mse:
+    reconstruction_loss = mse(K.flatten(inputs), K.flatten(outputs))
+else:
+    reconstruction_loss = binary_crossentropy(K.flatten(inputs),
+                                                K.flatten(outputs))
 
-    reconstruction_loss *= image_size * image_size
-    kl_loss = 1 + z_log_var - K.square(z_mean) - K.exp(z_log_var)
-    kl_loss = K.sum(kl_loss, axis=-1)
-    kl_loss *= -0.5
-    vae_loss = K.mean(reconstruction_loss + kl_loss)
-    vae.add_loss(vae_loss)
-    vae.compile(optimizer='rmsprop')
-    vae.summary()
-    plot_model(vae, to_file='vae_cnn.png', show_shapes=True)
+reconstruction_loss *= image_size * image_size
+kl_loss = 1 + z_log_var - K.square(z_mean) - K.exp(z_log_var)
+kl_loss = K.sum(kl_loss, axis=-1)
+kl_loss *= -0.5
+vae_loss = K.mean(reconstruction_loss + kl_loss)
+vae.add_loss(vae_loss)
+vae.compile(optimizer='rmsprop')
+vae.summary()
+plot_model(vae, to_file='vae_cnn.png', show_shapes=True)
 
-    if args.weights:
-        vae = vae.load_weights(args.weights)
-    else:
-        # train the autoencoder
-        vae.fit(x_train,
-                epochs=epochs,
-                batch_size=batch_size,
-                validation_data=(x_test, None))
-        vae.save_weights('vae_cnn_mnist.h5')
+if args.weights:
+    vae.load_weights(args.weights)
+else:
+    # train the autoencoder
+    vae.fit(x_train,
+            epochs=epochs,
+            batch_size=batch_size,
+            validation_data=(x_test, None))
+    vae.save_weights('vae_cnn_mnist.h5')
 
-    plot_results(models, data, batch_size=batch_size, model_name="vae_cnn")
+plot_results(models, data, batch_size=batch_size, model_name="vae_cnn")

@@ -134,7 +134,7 @@ batch_size = 256
 kernel_size = 3
 filters = 16
 latent_dim = 32 #2
-epochs = 60*3
+epochs = 60
 
 reduce_lr = ReduceLROnPlateau(monitor='val_loss', factor=0.2, patience=5, min_lr=0.001)
 
